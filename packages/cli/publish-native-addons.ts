@@ -49,7 +49,7 @@ const platformDirs = await readdir(npmDir);
 const npmTag = process.env.NPM_TAG || 'latest';
 for (const file of platformDirs) {
   try {
-    const output = execSync(`npm publish --tag ${npmTag} --access public`, {
+    const output = execSync(`npm pack --tag ${npmTag} --access public`, {
       cwd: join(currentDir, 'npm', file),
       env: process.env,
       stdio: 'pipe',
@@ -131,7 +131,7 @@ for (const napiTarget of pkg.napi.targets) {
   writeFileSync(join(platformCliDir, 'package.json'), JSON.stringify(cliPackage, null, 2) + '\n');
 
   // Publish CLI package
-  execSync(`npm publish --tag ${npmTag} --access public`, {
+  execSync(`npm pack --tag ${npmTag} --access public`, {
     cwd: platformCliDir,
     env: process.env,
     stdio: 'inherit',
@@ -142,4 +142,4 @@ for (const napiTarget of pkg.napi.targets) {
 }
 
 // Clean up cli-npm directory
-rmSync(cliNpmDir, { recursive: true, force: true });
+// rmSync(cliNpmDir, { recursive: true, force: true });
