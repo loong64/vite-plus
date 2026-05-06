@@ -15,14 +15,17 @@ use crate::{
     provider::{ArchiveFormat, DownloadInfo, HashVerification, JsRuntimeProvider},
 };
 
-/// Default Node.js distribution base URL
-#[cfg(not(target_env = "musl"))]
-const DEFAULT_NODE_DIST_URL: &str = "https://nodejs.org/dist";
+/// Unofficial LoongArch64 node builds
+#[cfg(target_arch = "loongarch64")]
+const DEFAULT_NODE_DIST_URL: &str = "https://github.com/loong64/node/releases/download";
 
 /// Unofficial builds URL for musl (official nodejs.org only provides glibc binaries)
-#[cfg(target_env = "musl")]
+#[cfg(all(target_env = "musl", not(target_arch = "loongarch64")))]
 const DEFAULT_NODE_DIST_URL: &str = "https://unofficial-builds.nodejs.org/download/release";
 
+/// Default Node.js distribution base URL
+#[cfg(not(any(target_env = "musl", target_arch = "loongarch64")))]
+const DEFAULT_NODE_DIST_URL: &str = "https://nodejs.org/dist";
 /// Environment variable to override the Node.js distribution URL
 
 /// Default cache TTL in seconds (1 hour)
@@ -582,6 +585,7 @@ impl JsRuntimeProvider for NodeProvider {
         let arch = match platform.arch {
             crate::platform::Arch::X64 => "x64",
             crate::platform::Arch::Arm64 => "arm64",
+            crate::platform::Arch::Loong64 => "loong64",
         };
         // On musl targets, append "-musl" to match unofficial-builds filename pattern
         // e.g. "linux-x64-musl" instead of "linux-x64"
