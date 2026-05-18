@@ -158,9 +158,15 @@ jobs:
 
       - name: Publish
         run: |
-          pnpm publish --filter=./packages/core --tag "${NPM_TAG}" --access public --no-git-checks
-          pnpm publish --filter=./packages/test --tag "${NPM_TAG}" --access public --no-git-checks
-          pnpm publish --filter=./packages/cli --tag "${NPM_TAG}" --access public --no-git-checks
+          pnpm publish --filter=./packages/core --tag "${NPM_TAG}" --access public --no-git-checks --dry-run || true
+          pnpm publish --filter=./packages/test --tag "${NPM_TAG}" --access public --no-git-checks --dry-run || true
+          pnpm publish --filter=./packages/cli --tag "${NPM_TAG}" --access public --no-git-checks --dry-run || true
+
+      - name: Make artifacts
+        run: |
+          mkdir -p release-assets
+          find packages/cli/npm packages/cli/cli-npm -name "*.tgz" -exec mv {} release-assets/ \;
+          ls -lh release-assets/
 
       - name: Create release body
         env:
@@ -213,6 +219,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: |
             installer-release/vp-setup-*.exe
+            release-assets/*.tgz
 
       - name: Publish GitHub Release
         env:
@@ -220,7 +227,7 @@ jobs:
         run: gh release edit "v${VERSION}" --draft=false --repo "${{ github.repository }}"
 
       - name: Send Discord notification
-        if: ${{ inputs.npm_tag == 'latest' }}
+        if: ${{ inputs.npm_tag == 'latest' && github.repository == 'voidzero-dev/vite-plus' }}
         uses: tsickert/discord-webhook@b217a69502f52803de774ded2b1ab7c282e99645 # v7.0.0
         with:
           webhook-url: ${{ secrets.DISCORD_RELEASES_WEBHOOK_URL }}

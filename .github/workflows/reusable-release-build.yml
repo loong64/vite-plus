@@ -29,22 +29,10 @@ jobs:
       fail-fast: false
       matrix:
         settings:
-          - target: aarch64-apple-darwin
-            os: macos-latest
-          - target: x86_64-apple-darwin
-            os: macos-latest
-          - target: aarch64-unknown-linux-gnu
+          - target: loongarch64-unknown-linux-gnu
             os: ubuntu-latest
-          - target: aarch64-unknown-linux-musl
+          - target: loongarch64-unknown-linux-musl
             os: ubuntu-latest
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
     steps:
       - uses: taiki-e/checkout-action@7d1e50e93dc4fb3bba58f85018fadf77898aee8b # v1.4.2
       - uses: ./.github/actions/clone
@@ -52,6 +40,22 @@ jobs:
         with:
           save-cache: ${{ github.ref_name == 'main' }}
           cache-key: ${{ inputs.cache-key }}
+
+      - name: Install cross-compilation toolchain
+        if: ${{ matrix.settings.target == 'loongarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install g++-13-loongarch64-linux-gnu -y
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-gcc loongarch64-linux-gnu-gcc /usr/bin/loongarch64-linux-gnu-gcc-13 100 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-ar loongarch64-linux-gnu-gcc-ar /usr/bin/loongarch64-linux-gnu-gcc-ar-13 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-nm loongarch64-linux-gnu-gcc-nm /usr/bin/loongarch64-linux-gnu-gcc-nm-13 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-ranlib loongarch64-linux-gnu-gcc-ranlib /usr/bin/loongarch64-linux-gnu-gcc-ranlib-13 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcov loongarch64-linux-gnu-gcov /usr/bin/loongarch64-linux-gnu-gcov-13
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-g++ loongarch64-linux-gnu-g++ /usr/bin/loongarch64-linux-gnu-g++-13 100
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-cpp loongarch64-linux-gnu-cpp /usr/bin/loongarch64-linux-gnu-cpp-13 100
 
       - name: Rustup Adds Target
         run: rustup target add ${{ matrix.settings.target }}
@@ -79,6 +83,17 @@ jobs:
             exit 1
           fi
           echo "Version replacement verified successfully"
+
+      - name: Update dependency for loongarch64 targets
+        if: contains(matrix.settings.target, 'loongarch64')
+        run: |
+          echo '[patch.crates-io]' >> Cargo.toml
+          echo 'nix = { git = "https://github.com/loong64/nix", branch = "loong64-v0.23.2" }' >> Cargo.toml
+          cargo update -p nix@0.23.2
+          if [ ${{ matrix.settings.target }} = 'loongarch64-unknown-linux-musl' ]; then
+            echo 'oxc_resolver = { git = "https://github.com/loong64/oxc-resolver", branch = "loong64-v11.19.1" }' >> Cargo.toml
+            cargo update -p oxc_resolver
+          fi
 
       - name: Build
         uses: ./.github/actions/build-upstream

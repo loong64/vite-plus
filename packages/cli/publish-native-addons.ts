@@ -96,7 +96,7 @@ const npmTag = process.env.NPM_TAG || 'latest';
 if (!skipNpmPublish) {
   for (const file of platformDirs) {
     try {
-      const output = execSync(`npm publish --tag ${npmTag} --access public`, {
+      const output = execSync(`npm pack --tag ${npmTag} --access public`, {
         cwd: join(currentDir, 'npm', file),
         env: process.env,
         stdio: 'pipe',
@@ -187,7 +187,7 @@ for (const napiTarget of pkg.napi.targets) {
   }
 
   // Publish CLI package
-  execSync(`npm publish --tag ${npmTag} --access public`, {
+  execSync(`npm pack --tag ${npmTag} --access public`, {
     cwd: platformCliDir,
     env: process.env,
     stdio: 'inherit',
@@ -198,6 +198,6 @@ for (const napiTarget of pkg.napi.targets) {
 }
 
 // Clean up cli-npm directory (skipped when caller still needs the prepared dirs).
-if (!skipNpmPublish) {
-  rmSync(cliNpmDir, { recursive: true, force: true });
-}
+// if (!skipNpmPublish) {
+//  rmSync(cliNpmDir, { recursive: true, force: true });
+// }
