@@ -20,6 +20,7 @@ pub enum Os {
 pub enum Arch {
     X64,
     Arm64,
+    Loong64,
 }
 
 impl Platform {
@@ -96,10 +97,14 @@ impl Arch {
         {
             Self::Arm64
         }
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        #[cfg(target_arch = "loongarch64")]
+        {
+            Self::Loong64
+        }
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "loongarch64")))]
         {
             compile_error!(
-                "Unsupported CPU architecture. vite_js_runtime only supports x86_64 and aarch64."
+                "Unsupported CPU architecture. vite_js_runtime only supports x86_64 aarch64 and loongarch64."
             )
         }
     }
@@ -110,6 +115,7 @@ impl fmt::Display for Arch {
         match self {
             Self::X64 => write!(f, "x64"),
             Self::Arm64 => write!(f, "arm64"),
+            Self::Loong64 => write!(f, "loong64"),
         }
     }
 }
