@@ -1,0 +1,94 @@
+diff --git a/crates/vite_js_runtime/src/platform.rs b/crates/vite_js_runtime/src/platform.rs
+index e4dd828cc8..41c80ff366 100644
+--- a/crates/vite_js_runtime/src/platform.rs
++++ b/crates/vite_js_runtime/src/platform.rs
+@@ -20,6 +20,7 @@ pub enum Os {
+ pub enum Arch {
+     X64,
+     Arm64,
++    Loong64,
+ }
+ 
+ impl Platform {
+@@ -96,10 +97,14 @@ impl Arch {
+         {
+             Self::Arm64
+         }
+-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
++        #[cfg(target_arch = "loongarch64")]
++        {
++            Self::Loong64
++        }
++        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "loongarch64")))]
+         {
+             compile_error!(
+-                "Unsupported CPU architecture. vite_js_runtime only supports x86_64 and aarch64."
++                "Unsupported CPU architecture. vite_js_runtime only supports x86_64 aarch64 and loongarch64."
+             )
+         }
+     }
+@@ -110,6 +115,7 @@ impl fmt::Display for Arch {
+         match self {
+             Self::X64 => write!(f, "x64"),
+             Self::Arm64 => write!(f, "arm64"),
++            Self::Loong64 => write!(f, "loong64"),
+         }
+     }
+ }
+diff --git a/crates/vite_js_runtime/src/providers/node.rs b/crates/vite_js_runtime/src/providers/node.rs
+index 1cd4c944ae..41f817259a 100644
+--- a/crates/vite_js_runtime/src/providers/node.rs
++++ b/crates/vite_js_runtime/src/providers/node.rs
+@@ -15,14 +15,18 @@ use crate::{
+     provider::{ArchiveFormat, DownloadInfo, HashVerification, JsRuntimeProvider},
+ };
+ 
+-/// Default Node.js distribution base URL
+-#[cfg(not(target_env = "musl"))]
+-const DEFAULT_NODE_DIST_URL: &str = "https://nodejs.org/dist";
++/// Unofficial LoongArch64 node builds
++#[cfg(target_arch = "loongarch64")]
++const DEFAULT_NODE_DIST_URL: &str = "https://github.com/loong64/node/releases/download";
+ 
+ /// Unofficial builds URL for musl (official nodejs.org only provides glibc binaries)
+-#[cfg(target_env = "musl")]
++#[cfg(all(target_env = "musl", not(target_arch = "loongarch64")))]
+ const DEFAULT_NODE_DIST_URL: &str = "https://unofficial-builds.nodejs.org/download/release";
+ 
++/// Default Node.js distribution base URL
++#[cfg(not(any(target_env = "musl", target_arch = "loongarch64")))]
++const DEFAULT_NODE_DIST_URL: &str = "https://nodejs.org/dist";
++
+ /// Environment variable to override the Node.js distribution URL
+ 
+ /// Default cache TTL in seconds (1 hour)
+@@ -581,6 +585,7 @@ impl JsRuntimeProvider for NodeProvider {
+         let arch = match platform.arch {
+             crate::platform::Arch::X64 => "x64",
+             crate::platform::Arch::Arm64 => "arm64",
++            crate::platform::Arch::Loong64 => "loong64",
+         };
+         // On musl targets, append "-musl" to match unofficial-builds filename pattern
+         // e.g. "linux-x64-musl" instead of "linux-x64"
+diff --git a/packages/cli/package.json b/packages/cli/package.json
+index b7b9bd3..45e1a57 100644
+--- a/packages/cli/package.json
++++ b/packages/cli/package.json
+@@ -377,14 +377,12 @@
+     "binaryName": "vite-plus",
+     "packageName": "@voidzero-dev/vite-plus",
+     "targets": [
+-      "aarch64-apple-darwin",
+-      "x86_64-apple-darwin",
+       "aarch64-unknown-linux-gnu",
+       "aarch64-unknown-linux-musl",
++      "loongarch64-unknown-linux-gnu",
++      "loongarch64-unknown-linux-musl",
+       "x86_64-unknown-linux-gnu",
+-      "x86_64-unknown-linux-musl",
+-      "x86_64-pc-windows-msvc",
+-      "aarch64-pc-windows-msvc"
++      "x86_64-unknown-linux-musl"
+     ]
+   },
+   "engines": {

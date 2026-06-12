@@ -1,0 +1,429 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'vite-plus tag'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 11 * * *'
+
+permissions: {}
+
+env:
+  RELEASE_BUILD: 'true'
+  DEBUG: 'napi:*'
+
+jobs:
+  check:
+    name: Check version
+    runs-on: ubuntu-slim
+    permissions:
+      contents: read
+    outputs:
+      version_changed: ${{ steps.check-build.outputs.changed }}
+      version: ${{ steps.get-version.outputs.version }}
+    steps:
+      - name: Check Version
+        id: get-version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version=$(curl -s https://api.github.com/repos/voidzero-dev/vite-plus/releases/latest | jq -r ".tag_name")
+          fi
+          echo "Current Version: ${version}"
+          if [ -z "${version}" ] || [ "${version}" == "null" ]; then
+            echo "Failed to get version"
+            exit 1
+          fi
+
+          echo "version=${version}" >> $GITHUB_ENV
+          echo "version=${version}" >> $GITHUB_OUTPUT
+
+      - name: Check Build
+        id: check-build
+        run: |
+          gh release view ${version} -R ${{ github.repository }} >/dev/null 2>&1 || echo "version_changed=true" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-rust:
+    name: Build (${{ matrix.settings.target }})
+    runs-on: ${{ matrix.settings.os }}
+    needs: check
+    if: needs.check.outputs.version_changed == 'true'
+    permissions:
+      contents: read
+    env:
+      RELEASE_BUILD: 'true'
+      DEBUG: 'napi:*'
+      VERSION: ${{ needs.check.outputs.version }}
+      cache-key: release
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: loongarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: loongarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: voidzero-dev/vite-plus
+          ref: ${{ env.VERSION }}
+      - uses: ./.github/actions/clone
+      - uses: oxc-project/setup-rust@main
+        with:
+          save-cache: ${{ github.ref_name == 'main' }}
+          cache-key: ${{ env.cache-key }}
+
+      - name: Install cross-compilation toolchain
+        if: ${{ matrix.settings.target == 'loongarch64-unknown-linux-gnu' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install g++-13-loongarch64-linux-gnu -y
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-gcc loongarch64-linux-gnu-gcc /usr/bin/loongarch64-linux-gnu-gcc-13 100 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-ar loongarch64-linux-gnu-gcc-ar /usr/bin/loongarch64-linux-gnu-gcc-ar-13 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-nm loongarch64-linux-gnu-gcc-nm /usr/bin/loongarch64-linux-gnu-gcc-nm-13 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcc-ranlib loongarch64-linux-gnu-gcc-ranlib /usr/bin/loongarch64-linux-gnu-gcc-ranlib-13 \
+            --slave /usr/bin/loongarch64-linux-gnu-gcov loongarch64-linux-gnu-gcov /usr/bin/loongarch64-linux-gnu-gcov-13
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-g++ loongarch64-linux-gnu-g++ /usr/bin/loongarch64-linux-gnu-g++-13 100
+          sudo update-alternatives \
+            --install /usr/bin/loongarch64-linux-gnu-cpp loongarch64-linux-gnu-cpp /usr/bin/loongarch64-linux-gnu-cpp-13 100
+
+      - name: Rustup Adds Target
+        run: rustup target add ${{ matrix.settings.target }}
+
+      - uses: oxc-project/setup-node@main
+
+      - name: Set binding version
+        shell: bash
+        run: |
+          pnpm exec tool replace-file-content packages/cli/binding/Cargo.toml 'version = "0.0.0"' "version = \"${VERSION}\""
+          pnpm exec tool replace-file-content crates/vite_global_cli/Cargo.toml 'version = "0.0.0"' "version = \"${VERSION}\""
+          cat crates/vite_global_cli/Cargo.toml
+
+      - name: Verify version replacement
+        shell: bash
+        run: |
+          if grep -q 'version = "0.0.0"' crates/vite_global_cli/Cargo.toml; then
+            echo "ERROR: Version replacement failed for crates/vite_global_cli/Cargo.toml"
+            head -5 crates/vite_global_cli/Cargo.toml
+            exit 1
+          fi
+          if grep -q 'version = "0.0.0"' packages/cli/binding/Cargo.toml; then
+            echo "ERROR: Version replacement failed for packages/cli/binding/Cargo.toml"
+            head -5 packages/cli/binding/Cargo.toml
+            exit 1
+          fi
+          echo "Version replacement verified successfully"
+
+      - name: Update dependency for loongarch64 targets
+        if: contains(matrix.settings.target, 'loongarch64')
+        run: |
+          echo '[patch.crates-io]' >> Cargo.toml
+          echo 'nix = { git = "https://github.com/loong64/nix", branch = "loong64-v0.23.2" }' >> Cargo.toml
+          cargo update -p nix@0.23.2
+          if [ ${{ matrix.settings.target }} = 'loongarch64-unknown-linux-musl' ]; then
+            echo 'oxc_resolver = { git = "https://github.com/loong64/oxc-resolver", branch = "loong64-v11.19.1" }' >> Cargo.toml
+            cargo update -p oxc_resolver
+          fi
+          sed -i "s@TARGET_CC: clang@# TARGET_CC: clang@g" .github/actions/build-upstream/action.yml
+
+      - name: Prepare build
+        run: |
+          wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
+          VITE_TASK_COMMIT=$(grep "github.com/voidzero-dev/vite-task" Cargo.toml | awk -F'rev = "' '{print $2}' | cut -d'"' -f1 | uniq)
+          sed -i "s@github.com/voidzero-dev/vite-task@github.com/loong64/vite-task@g" Cargo.toml
+          sed -i "s@rev = \"${VITE_TASK_COMMIT}\"@branch = \"loong64-${VITE_TASK_COMMIT:0:7}\"@g" Cargo.toml
+
+      - name: Build
+        uses: ./.github/actions/build-upstream
+        with:
+          target: ${{ matrix.settings.target }}
+
+      - name: Upload Vite+ native artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vite-plus-native-${{ matrix.settings.target }}
+          path: ./packages/cli/binding/*.node
+          if-no-files-found: error
+
+      - name: Upload Rust CLI binary artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: vite-global-cli-${{ matrix.settings.target }}
+          path: |
+            ./target/${{ matrix.settings.target }}/release/vp
+            ./target/${{ matrix.settings.target }}/release/vp.exe
+            ./target/${{ matrix.settings.target }}/release/vp-shim.exe
+          if-no-files-found: error
+
+      - name: Package release archive
+        shell: bash
+        working-directory: ./target/${{ matrix.settings.target }}/release
+        run: |
+          if [ -f vp.exe ]; then
+            7z a "vp-${{ matrix.settings.target }}.zip" vp.exe vp-shim.exe
+          else
+            tar -czf "vp-${{ matrix.settings.target }}.tar.gz" vp
+          fi
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: vp-release-archive-${{ matrix.settings.target }}
+          path: |
+            ./target/${{ matrix.settings.target }}/release/vp-*.tar.gz
+            ./target/${{ matrix.settings.target }}/release/vp-*.zip
+          if-no-files-found: error
+
+      - name: Upload installer binary artifact (Windows only)
+        if: contains(matrix.settings.target, 'windows')
+        uses: actions/upload-artifact@v7
+        with:
+          name: vp-setup-${{ matrix.settings.target }}
+          path: ./target/${{ matrix.settings.target }}/release/vp-setup.exe
+          if-no-files-found: error
+
+      - name: Remove .node files before upload dist
+        if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
+        run: |
+          rm ./packages/core/dist/**/*.node
+
+      - name: Upload core dist
+        uses: actions/upload-artifact@v7
+        if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
+        with:
+          name: core
+          path: ./packages/core/dist
+          if-no-files-found: error
+
+      - name: Upload prompts dist
+        uses: actions/upload-artifact@v7
+        if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
+        with:
+          name: prompts
+          path: ./packages/prompts/dist
+          if-no-files-found: error
+
+      - name: Upload cli dist
+        uses: actions/upload-artifact@v7
+        if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
+        with:
+          name: cli
+          path: ./packages/cli/dist
+          if-no-files-found: error
+
+      - name: Upload cli docs
+        uses: actions/upload-artifact@v7
+        if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
+        with:
+          name: cli-docs
+          path: ./packages/cli/docs
+          if-no-files-found: error
+
+      - name: Upload LICENSE files
+        uses: actions/upload-artifact@v7
+        if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
+        with:
+          name: licenses
+          path: |
+            ./packages/core/LICENSE
+            ./packages/cli/LICENSE
+          if-no-files-found: error
+
+  Release:
+    runs-on: ubuntu-latest
+    # environment: release
+    needs: [check, build-rust]
+    if: needs.check.outputs.version_changed == 'true'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write # Required for OIDC
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: voidzero-dev/vite-plus
+          ref: ${{ env.VERSION }}
+      - uses: ./.github/actions/clone
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Prepare build
+        run: |
+          wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
+          sed -i 's@npm publish@npm pack@g' packages/cli/publish-native-addons.ts
+          sed -i 's@rmSync(cliNpmDir, { recursive: true, force: true });@console.log(\'skip\');@g' packages/cli/publish-native-addons.ts
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Download cli dist
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/dist
+          pattern: cli
+          merge-multiple: true
+
+      - name: Download cli docs
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/docs
+          pattern: cli-docs
+          merge-multiple: true
+
+      - name: Download cli binding
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/artifacts
+          pattern: vite-plus-native-*
+
+      - name: Download core dist
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/core/dist
+          pattern: core
+          merge-multiple: true
+
+      - name: Download LICENSE files
+        uses: actions/download-artifact@v8
+        with:
+          path: packages
+          pattern: licenses
+          merge-multiple: true
+
+      - uses: ./.github/actions/download-rolldown-binaries
+        with:
+          github-token: ${{ github.token }}
+          target: x86_64-unknown-linux-gnu
+          upload: 'false'
+
+      - name: Download Rust CLI binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: rust-cli-artifacts
+          pattern: vite-global-cli-*
+
+      - name: Download installer binaries (Windows)
+        uses: actions/download-artifact@v8
+        with:
+          path: installer-artifacts
+          pattern: vp-setup-*
+
+      - name: Prepare installer binaries for release
+        run: |
+          mkdir -p installer-release
+          for artifact_dir in installer-artifacts/vp-setup-*/; do
+            if [ -d "$artifact_dir" ]; then
+              dir_name=$(basename "$artifact_dir")
+              target_name=${dir_name#vp-setup-}
+              cp "$artifact_dir/vp-setup.exe" "installer-release/vp-setup-${target_name}.exe"
+            fi
+          done
+          echo "Installer binaries:"
+          ls -la installer-release/ || echo "No installer binaries found"
+
+      - name: Download release archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: binary-release
+          pattern: vp-release-archive-*
+          merge-multiple: true
+
+      - name: 'Setup npm'
+        run: npm install -g npm@latest
+
+      - name: Prepare and publish native addons
+        run: node ./packages/cli/publish-native-addons.ts --mode npm
+
+      - name: Publish
+        run: |
+          pnpm publish --filter=./packages/core --tag latest --access public --no-git-checks --dry-run
+          pnpm publish --filter=./packages/test --tag latest --access public --no-git-checks --dry-run
+          pnpm publish --filter=./packages/cli --tag latest --access public --no-git-checks --dry-run
+
+      - name: Make artifacts
+        run: |
+          mkdir -p release-assets
+          find packages/cli/npm packages/cli/cli-npm -name "*.tgz" -exec mv {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Create release body
+        env:
+          REPOSITORY: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          INSTALL_BASH="curl -fsSL https://vite.plus | bash"
+          INSTALL_PS1="irm https://vite.plus/ps1 | iex"
+          cat > ./RELEASE_BODY.md <<EOF
+          ## vite-plus v${VERSION}
+
+          ### Published Packages
+
+          - \`@voidzero-dev/vite-plus-core@${VERSION}\`
+          - \`@voidzero-dev/vite-plus-test@${VERSION}\`
+          - \`vite-plus@${VERSION}\`
+
+          ### Installation
+
+          **macOS/Linux:**
+          \`\`\`bash
+          ${INSTALL_BASH}
+          \`\`\`
+
+          **Windows:**
+          \`\`\`powershell
+          ${INSTALL_PS1}
+          \`\`\`
+
+          Or download and run \`vp-setup.exe\` from the assets below.
+
+          View the full commit: https://github.com/${REPOSITORY}/commit/${COMMIT_SHA}
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        id: release
+        with:
+          body_path: ./RELEASE_BODY.md
+          draft: true
+          make_latest: true
+          prerelease: false
+          name: vite-plus v${{ env.VERSION }}
+          tag_name: v${{ env.VERSION }}
+          target_commitish: ${{ github.sha }}
+          files: |
+            installer-release/vp-setup-*.exe
+            binary-release/vp-*.tar.gz
+            binary-release/vp-*.zip
+            release-assets/*.tgz
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${VERSION}" --draft=false --repo "${{ github.repository }}"
+
