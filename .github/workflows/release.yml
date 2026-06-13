@@ -277,7 +277,6 @@ jobs:
         run: |
           wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
           sed -i 's@npm publish@npm pack@g' packages/cli/publish-native-addons.ts
-          sed -i 's@rmSync(cliNpmDir, { recursive: true, force: true });@console.log(\'skip\');@g' packages/cli/publish-native-addons.ts
 
       - name: Install dependencies
         run: pnpm install

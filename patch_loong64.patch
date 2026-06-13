@@ -92,3 +92,17 @@ index b7b9bd3..45e1a57 100644
      ]
    },
    "engines": {
+diff --git a/packages/cli/publish-native-addons.ts b/packages/cli/publish-native-addons.ts
+index ed9c5c5..8234fc4 100644
+--- a/packages/cli/publish-native-addons.ts
++++ b/packages/cli/publish-native-addons.ts
+@@ -190,6 +190,6 @@ for (const napiTarget of pkg.napi.targets) {
+ }
+ 
+ // Clean up cli-npm directory (skipped when caller still needs the prepared dirs).
+-if (!skipNpmPublish) {
+-  rmSync(cliNpmDir, { recursive: true, force: true });
+-}
++// if (!skipNpmPublish) {
++  // rmSync(cliNpmDir, { recursive: true, force: true });
++// }
