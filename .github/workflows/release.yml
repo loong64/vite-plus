@@ -40,13 +40,13 @@ jobs:
             exit 1
           fi
 
-          echo "version=${version}" >> $GITHUB_ENV
-          echo "version=${version}" >> $GITHUB_OUTPUT
+          echo "version=${version/v/}" >> $GITHUB_ENV
+          echo "version=${version/v/}" >> $GITHUB_OUTPUT
 
       - name: Check Build
         id: check-build
         run: |
-          gh release view ${version} -R ${{ github.repository }} >/dev/null 2>&1 || echo "version_changed=true" >> $GITHUB_OUTPUT
+          gh release view v${version} -R ${{ github.repository }} >/dev/null 2>&1 || echo "changed=true" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -82,7 +82,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: voidzero-dev/vite-plus
-          ref: ${{ env.VERSION }}
+          ref: v${{ env.VERSION }}
       - uses: ./.github/actions/clone
       - uses: oxc-project/setup-rust@main
         with:
@@ -262,7 +262,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: voidzero-dev/vite-plus
-          ref: ${{ env.VERSION }}
+          ref: v${{ env.VERSION }}
       - uses: ./.github/actions/clone
 
       - uses: pnpm/action-setup@v6
