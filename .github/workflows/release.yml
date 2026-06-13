@@ -426,3 +426,117 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "v${VERSION}" --draft=false --repo "${{ github.repository }}"
 
+  Publish:
+    runs-on: ubuntu-latest
+    # environment: release
+    needs: [check, build-rust]
+    if: needs.check.outputs.version_changed == 'true'
+    permissions:
+      contents: write
+      packages: write
+      id-token: write # Required for OIDC
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: voidzero-dev/vite-plus
+          ref: v${{ env.VERSION }}
+      - uses: ./.github/actions/clone
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Prepare build
+        run: |
+          wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
+          sed -i 's#git+https://github.com/voidzero-dev/vite-plus#git+https://github.com/loong64/vite-plus#g' packages/core/package.json packages/test/package.json packages/prompts/package.json packages/cli/package.json
+          sed -i 's#"name": "@voidzero-dev/"#"name": "@loong64/"#g' packages/core/package.json packages/test/package.json packages/prompts/package.json
+          sed -i 's#"name": "vite-plus",#"name": "@loong64/vite-plus",#g' packages/cli/package.json
+          sed -i 's#"packageName": "@voidzero-dev/#"packageName": "@loong64/#g' packages/cli/package.json
+          sed -i 's#@voidzero-dev/vite-plus-cli#@loong64/vite-plus-cli#g' packages/cli/publish-native-addons.ts
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Download cli dist
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/dist
+          pattern: cli
+          merge-multiple: true
+
+      - name: Download cli docs
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/docs
+          pattern: cli-docs
+          merge-multiple: true
+
+      - name: Download cli binding
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/cli/artifacts
+          pattern: vite-plus-native-*
+
+      - name: Download core dist
+        uses: actions/download-artifact@v8
+        with:
+          path: packages/core/dist
+          pattern: core
+          merge-multiple: true
+
+      - name: Download LICENSE files
+        uses: actions/download-artifact@v8
+        with:
+          path: packages
+          pattern: licenses
+          merge-multiple: true
+
+      - uses: ./.github/actions/download-rolldown-binaries
+        with:
+          github-token: ${{ github.token }}
+          target: x86_64-unknown-linux-gnu
+          upload: 'false'
+
+      - name: Download Rust CLI binaries
+        uses: actions/download-artifact@v8
+        with:
+          path: rust-cli-artifacts
+          pattern: vite-global-cli-*
+
+      - name: Download installer binaries (Windows)
+        uses: actions/download-artifact@v8
+        with:
+          path: installer-artifacts
+          pattern: vp-setup-*
+
+      - name: Prepare installer binaries for release
+        run: |
+          mkdir -p installer-release
+          for artifact_dir in installer-artifacts/vp-setup-*/; do
+            if [ -d "$artifact_dir" ]; then
+              dir_name=$(basename "$artifact_dir")
+              target_name=${dir_name#vp-setup-}
+              cp "$artifact_dir/vp-setup.exe" "installer-release/vp-setup-${target_name}.exe"
+            fi
+          done
+          echo "Installer binaries:"
+          ls -la installer-release/ || echo "No installer binaries found"
+
+      - name: 'Setup npm'
+        run: npm install -g npm@latest
+
+      - name: Prepare and publish native addons
+        run: node ./packages/cli/publish-native-addons.ts --mode npm
+
+      - name: Publish
+        run: |
+          pnpm publish --filter=./packages/core --tag latest --access public --no-git-checks
+          pnpm publish --filter=./packages/test --tag latest --access public --no-git-checks
+          pnpm publish --filter=./packages/cli --tag latest --access public --no-git-checks
