@@ -455,8 +455,8 @@ jobs:
       - name: Prepare build
         run: |
           wget -qO - https://github.com/${{ github.repository }}/raw/refs/heads/main/patch_loong64.patch | patch -p1
-          sed -i 's#git+https://github.com/voidzero-dev/vite-plus#git+https://github.com/loong64/vite-plus#g' packages/core/package.json packages/test/package.json packages/prompts/package.json packages/cli/package.json
-          sed -i 's#"name": "@voidzero-dev/"#"name": "@loong64/"#g' packages/core/package.json packages/test/package.json packages/prompts/package.json
+          sed -i 's#git+https://github.com/voidzero-dev/vite-plus#git+https://github.com/loong64/vite-plus#g' packages/cli/package.json packages/core/package.json packages/prompts/package.json
+          sed -i 's#"name": "@voidzero-dev/"#"name": "@loong64/"#g' packages/core/package.json packages/prompts/package.json
           sed -i 's#"name": "vite-plus",#"name": "@loong64/vite-plus",#g' packages/cli/package.json
           sed -i 's#"packageName": "@voidzero-dev/#"packageName": "@loong64/#g' packages/cli/package.json
           sed -i 's#@voidzero-dev/vite-plus-cli#@loong64/vite-plus-cli#g' packages/cli/publish-native-addons.ts
