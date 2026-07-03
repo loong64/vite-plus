@@ -71,27 +71,18 @@ index 1cd4c944ae..41f817259a 100644
          // On musl targets, append "-musl" to match unofficial-builds filename pattern
          // e.g. "linux-x64-musl" instead of "linux-x64"
 diff --git a/packages/cli/package.json b/packages/cli/package.json
-index b7b9bd3..45e1a57 100644
+index b7b9bd3..ceec154 100644
 --- a/packages/cli/package.json
 +++ b/packages/cli/package.json
-@@ -377,14 +377,12 @@
-     "binaryName": "vite-plus",
-     "packageName": "@voidzero-dev/vite-plus",
-     "targets": [
--      "aarch64-apple-darwin",
--      "x86_64-apple-darwin",
+@@ -381,6 +381,8 @@
+       "x86_64-apple-darwin",
        "aarch64-unknown-linux-gnu",
        "aarch64-unknown-linux-musl",
 +      "loongarch64-unknown-linux-gnu",
 +      "loongarch64-unknown-linux-musl",
        "x86_64-unknown-linux-gnu",
--      "x86_64-unknown-linux-musl",
--      "x86_64-pc-windows-msvc",
--      "aarch64-pc-windows-msvc"
-+      "x86_64-unknown-linux-musl"
-     ]
-   },
-   "engines": {
+       "x86_64-unknown-linux-musl",
+       "x86_64-pc-windows-msvc",
 diff --git a/packages/cli/publish-native-addons.ts b/packages/cli/publish-native-addons.ts
 index ed9c5c5..8234fc4 100644
 --- a/packages/cli/publish-native-addons.ts

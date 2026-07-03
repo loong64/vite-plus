@@ -66,6 +66,10 @@ jobs:
       fail-fast: false
       matrix:
         settings:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
           - target: aarch64-unknown-linux-musl
@@ -78,13 +82,17 @@ jobs:
             os: ubuntu-latest
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
     steps:
       - uses: actions/checkout@v6
         with:
           repository: voidzero-dev/vite-plus
           ref: v${{ env.VERSION }}
       - uses: ./.github/actions/clone
-      - uses: oxc-project/setup-rust@main
+      - uses: oxc-project/setup-rust@68c3199c5339f965e6e163924c3c450773eba42b # main (pending v1.0.17 — Swatinem/rust-cache v2.9.1 for node24)
         with:
           save-cache: ${{ github.ref_name == 'main' }}
           cache-key: ${{ env.cache-key }}
@@ -108,29 +116,38 @@ jobs:
       - name: Rustup Adds Target
         run: rustup target add ${{ matrix.settings.target }}
 
-      - uses: oxc-project/setup-node@main
+      - uses: oxc-project/setup-node@4c588e9266bd930b6ddc34307df0659ed511d187 # v1.3.1
 
-      - name: Set binding version
+      - name: Set build version
         shell: bash
         run: |
-          pnpm exec tool replace-file-content packages/cli/binding/Cargo.toml 'version = "0.0.0"' "version = \"${VERSION}\""
-          pnpm exec tool replace-file-content crates/vite_global_cli/Cargo.toml 'version = "0.0.0"' "version = \"${VERSION}\""
-          cat crates/vite_global_cli/Cargo.toml
+          set -euo pipefail
+          # Stamp ${VERSION} as the [package] version so CARGO_PKG_VERSION matches
+          # the version that gets published/installed (the release version, or
+          # 0.0.0-commit.<sha> for pkg.pr.new). Anchored to the line-start
+          # `version = "..."` so crate dependency versions are never touched.
+          for f in crates/vite_global_cli/Cargo.toml packages/cli/binding/Cargo.toml; do
+            node -e 'const fs=require("fs"),f=process.argv[1];fs.writeFileSync(f,fs.readFileSync(f,"utf8").replace(/^version = "[^"]*"/m,`version = "${process.env.VERSION}"`))' "$f"
+          done
+          # Stamp packages/cli/package.json too so the bundled JS dist inlines
+          # ${VERSION} as cliPkg.version (VITE_PLUS_VERSION). Without this a preview
+          # `vp migrate` pins the build-time release placeholder instead of the
+          # test build, and skips the registry-bridge .npmrc.
+          pnpm exec json-edit packages/cli/package.json '_.version = process.env.VERSION'
 
       - name: Verify version replacement
         shell: bash
         run: |
-          if grep -q 'version = "0.0.0"' crates/vite_global_cli/Cargo.toml; then
-            echo "ERROR: Version replacement failed for crates/vite_global_cli/Cargo.toml"
-            head -5 crates/vite_global_cli/Cargo.toml
-            exit 1
+          set -euo pipefail
+          for f in crates/vite_global_cli/Cargo.toml packages/cli/binding/Cargo.toml; do
+            if ! grep -qF "version = \"${VERSION}\"" "$f"; then
+              echo "ERROR: version stamp failed for $f"; head -5 "$f"; exit 1
+            fi
+          done
+          if [ "$(node -p "require('./packages/cli/package.json').version")" != "${VERSION}" ]; then
+            echo "ERROR: version stamp failed for packages/cli/package.json"; exit 1
           fi
-          if grep -q 'version = "0.0.0"' packages/cli/binding/Cargo.toml; then
-            echo "ERROR: Version replacement failed for packages/cli/binding/Cargo.toml"
-            head -5 packages/cli/binding/Cargo.toml
-            exit 1
-          fi
-          echo "Version replacement verified successfully"
+          echo "Version stamp verified: ${VERSION}"
 
       - name: Update dependency for loongarch64 targets
         if: contains(matrix.settings.target, 'loongarch64')
@@ -157,14 +174,14 @@ jobs:
           target: ${{ matrix.settings.target }}
 
       - name: Upload Vite+ native artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vite-plus-native-${{ matrix.settings.target }}
           path: ./packages/cli/binding/*.node
           if-no-files-found: error
 
       - name: Upload Rust CLI binary artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vite-global-cli-${{ matrix.settings.target }}
           path: |
@@ -184,7 +201,7 @@ jobs:
           fi
 
       - name: Upload release archive
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vp-release-archive-${{ matrix.settings.target }}
           path: |
@@ -194,7 +211,7 @@ jobs:
 
       - name: Upload installer binary artifact (Windows only)
         if: contains(matrix.settings.target, 'windows')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vp-setup-${{ matrix.settings.target }}
           path: ./target/${{ matrix.settings.target }}/release/vp-setup.exe
@@ -206,7 +223,7 @@ jobs:
           rm ./packages/core/dist/**/*.node
 
       - name: Upload core dist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
         with:
           name: core
@@ -214,7 +231,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload prompts dist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
         with:
           name: prompts
@@ -222,7 +239,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload cli dist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
         with:
           name: cli
@@ -230,7 +247,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload cli docs
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
         with:
           name: cli-docs
@@ -238,7 +255,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload LICENSE files
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ matrix.settings.target == 'x86_64-unknown-linux-gnu' }}
         with:
           name: licenses
@@ -265,9 +282,9 @@ jobs:
           ref: v${{ env.VERSION }}
       - uses: ./.github/actions/clone
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
@@ -282,34 +299,34 @@ jobs:
         run: pnpm install
 
       - name: Download cli dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/cli/dist
           pattern: cli
           merge-multiple: true
 
       - name: Download cli docs
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/cli/docs
           pattern: cli-docs
           merge-multiple: true
 
       - name: Download cli binding
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/cli/artifacts
           pattern: vite-plus-native-*
 
       - name: Download core dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/core/dist
           pattern: core
           merge-multiple: true
 
       - name: Download LICENSE files
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages
           pattern: licenses
@@ -322,13 +339,13 @@ jobs:
           upload: 'false'
 
       - name: Download Rust CLI binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: rust-cli-artifacts
           pattern: vite-global-cli-*
 
       - name: Download installer binaries (Windows)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: installer-artifacts
           pattern: vp-setup-*
@@ -361,9 +378,8 @@ jobs:
 
       - name: Publish
         run: |
-          pnpm publish --filter=./packages/core --tag latest --access public --no-git-checks --dry-run
-          pnpm publish --filter=./packages/test --tag latest --access public --no-git-checks --dry-run
-          pnpm publish --filter=./packages/cli --tag latest --access public --no-git-checks --dry-run
+          pnpm publish --filter=./packages/core --tag latest --access public --no-git-checks --dry-run --force
+          pnpm publish --filter=./packages/cli --tag latest --access public --no-git-checks --dry-run --force
 
       - name: Make artifacts
         run: |
@@ -384,7 +400,6 @@ jobs:
           ### Published Packages
 
           - \`@voidzero-dev/vite-plus-core@${VERSION}\`
-          - \`@voidzero-dev/vite-plus-test@${VERSION}\`
           - \`vite-plus@${VERSION}\`
 
           ### Installation
@@ -405,7 +420,7 @@ jobs:
           EOF
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         id: release
         with:
           body_path: ./RELEASE_BODY.md
@@ -426,6 +441,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "v${VERSION}" --draft=false --repo "${{ github.repository }}"
 
+  # Build and push the official toolchain Docker image to GHCR after the npm
+  # release is published (the image installs vp from npm, so the version must
+  # exist first). See docker/Dockerfile and docs/guide/docker.md.
   Publish:
     runs-on: ubuntu-latest
     # environment: release
@@ -444,9 +462,9 @@ jobs:
           ref: v${{ env.VERSION }}
       - uses: ./.github/actions/clone
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .node-version
           package-manager-cache: false
@@ -465,34 +483,34 @@ jobs:
         run: pnpm install
 
       - name: Download cli dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/cli/dist
           pattern: cli
           merge-multiple: true
 
       - name: Download cli docs
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/cli/docs
           pattern: cli-docs
           merge-multiple: true
 
       - name: Download cli binding
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/cli/artifacts
           pattern: vite-plus-native-*
 
       - name: Download core dist
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages/core/dist
           pattern: core
           merge-multiple: true
 
       - name: Download LICENSE files
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: packages
           pattern: licenses
@@ -505,13 +523,13 @@ jobs:
           upload: 'false'
 
       - name: Download Rust CLI binaries
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: rust-cli-artifacts
           pattern: vite-global-cli-*
 
       - name: Download installer binaries (Windows)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: installer-artifacts
           pattern: vp-setup-*
@@ -532,11 +550,15 @@ jobs:
       - name: 'Setup npm'
         run: npm install -g npm@latest
 
+      - name: Setup NPM token
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Prepare and publish native addons
         run: node ./packages/cli/publish-native-addons.ts --mode npm
 
       - name: Publish
         run: |
           pnpm publish --filter=./packages/core --tag latest --access public --no-git-checks
-          pnpm publish --filter=./packages/test --tag latest --access public --no-git-checks
           pnpm publish --filter=./packages/cli --tag latest --access public --no-git-checks
