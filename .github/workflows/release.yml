@@ -152,10 +152,11 @@ jobs:
       - name: Update dependency for loongarch64 targets
         if: contains(matrix.settings.target, 'loongarch64')
         run: |
-          echo '[patch.crates-io]' >> Cargo.toml
-          echo 'nix = { git = "https://github.com/loong64/nix", branch = "loong64-v0.23.2" }' >> Cargo.toml
-          cargo update -p nix@0.23.2
+          # echo '[patch.crates-io]' >> Cargo.toml
+          # echo 'nix = { git = "https://github.com/loong64/nix", branch = "loong64-v0.23.2" }' >> Cargo.toml
+          # cargo update -p nix@0.23.2
           if [ ${{ matrix.settings.target }} = 'loongarch64-unknown-linux-musl' ]; then
+            echo '[patch.crates-io]' >> Cargo.toml
             echo 'oxc_resolver = { git = "https://github.com/loong64/oxc-resolver", branch = "loong64-v11.23.0" }' >> Cargo.toml
             cargo update -p oxc_resolver
           fi
