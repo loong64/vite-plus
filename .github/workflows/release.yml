@@ -124,7 +124,7 @@ jobs:
           set -euo pipefail
           # Stamp ${VERSION} as the [package] version so CARGO_PKG_VERSION matches
           # the version that gets published/installed (the release version, or
-          # 0.0.0-commit.<sha> for pkg.pr.new). Anchored to the line-start
+          # 0.0.0-commit.<sha> for preview builds). Anchored to the line-start
           # `version = "..."` so crate dependency versions are never touched.
           for f in crates/vite_global_cli/Cargo.toml packages/cli/binding/Cargo.toml; do
             node -e 'const fs=require("fs"),f=process.argv[1];fs.writeFileSync(f,fs.readFileSync(f,"utf8").replace(/^version = "[^"]*"/m,`version = "${process.env.VERSION}"`))' "$f"
@@ -157,9 +157,10 @@ jobs:
           # cargo update -p nix@0.23.2
           if [ ${{ matrix.settings.target }} = 'loongarch64-unknown-linux-musl' ]; then
             echo '[patch.crates-io]' >> Cargo.toml
-            echo 'oxc_resolver = { git = "https://github.com/loong64/oxc-resolver", branch = "loong64-v11.23.0" }' >> Cargo.toml
+            echo 'oxc_resolver = { git = "https://github.com/loong64/oxc-resolver", branch = "loong64-v11.24.2" }' >> Cargo.toml
             cargo update -p oxc_resolver
           fi
+          sed -i "s@ --use-napi-cross@@g" .github/actions/build-upstream/action.yml
           sed -i "s@TARGET_CC: clang@# TARGET_CC: clang@g" .github/actions/build-upstream/action.yml
 
       - name: Prepare build
