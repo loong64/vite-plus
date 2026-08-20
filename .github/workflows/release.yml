@@ -187,6 +187,7 @@ jobs:
           VITE_TASK_COMMIT=$(grep "github.com/voidzero-dev/vite-task" Cargo.toml | awk -F'rev = "' '{print $2}' | cut -d'"' -f1 | uniq)
           sed -i "s@github.com/voidzero-dev/vite-task@github.com/loong64/vite-task@g" Cargo.toml
           sed -i "s@rev = \"${VITE_TASK_COMMIT}\"@branch = \"loong64-${VITE_TASK_COMMIT:0:7}\"@g" Cargo.toml
+          cargo metadata --format-version 1 >/dev/null
 
       - name: Build
         uses: ./.github/actions/build-upstream
